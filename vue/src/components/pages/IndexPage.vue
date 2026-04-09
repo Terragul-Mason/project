@@ -28,13 +28,15 @@
 
       <div class="game__field">
         <Flask
-          v-for="(flask, index) in flasks"
+          v-for="(flask, index) in getFlasks"
           :key="index"
           :layers="flask"
           :maxLayers="MAX_LAYERS"
           :isSelected="selectedIndex === index"
           :isBlocked="blockedFlaskIndex === index"
           @select="() => selectFlask(index)"
+          @dragStart="() => handleDragStart(index)"
+          @dropFlask="(place) => handleDrop(index, place)"
         />
       </div>
 
@@ -60,6 +62,8 @@
 <script>
 import Flask from './Flask.vue'
 import RecordsModal from './RecordsModal.vue'
+import { mapGetters } from 'vuex';
+import { mapActions } from 'vuex';
 
 export default {
   name: 'IndexPage',
@@ -71,7 +75,6 @@ export default {
 
   data () {
     return {
-      flasks: [],
       selectedIndex: null,
       blockedFlaskIndex: null,
       MAX_LAYERS: 4,
@@ -87,6 +90,11 @@ export default {
   },
 
   computed: {
+    ...mapGetters('game', [
+      'getFlasks',
+      'getDragIndex'
+    ]),
+
     formattedTime () {
       return this.formatTime(this.time)
     }
@@ -102,6 +110,12 @@ export default {
   },
 
   methods: {
+    ...mapActions('game', [
+      'setFlasks',
+      'setDragIndex',
+      'moveFlask'
+    ]),
+
     generateGame () {
       this.selectedIndex = null
       this.blockedFlaskIndex = null
@@ -110,8 +124,11 @@ export default {
       const layers = this.createLayers()
       this.shuffle(layers)
 
-      this.flasks = this.createEmptyFlasks()
-      this.distributeLayers(layers)
+      const flasks = this.createEmptyFlasks()
+      this.distributeLayers(flasks, layers)
+
+      this.setFlasks(flasks)
+      this.setDragIndex(null)
 
       this.resetTimer()
     },
@@ -162,15 +179,15 @@ export default {
       return result
     },
 
-    distributeLayers (layers) {
+    distributeLayers (flasks, layers) {
       layers.forEach(layer => {
         let placed = false
 
         while (!placed) {
-          const randomIndex = Math.floor(Math.random() * this.flasks.length)
+          const randomIndex = Math.floor(Math.random() * flasks.length)
 
-          if (this.flasks[randomIndex].length < this.MAX_LAYERS) {
-            this.flasks[randomIndex].push(layer)
+          if (flasks[randomIndex].length < this.MAX_LAYERS) {
+            flasks[randomIndex].push(layer)
             placed = true
           }
         }
@@ -186,7 +203,7 @@ export default {
       }
 
       if (this.selectedIndex === null) {
-        if (!this.flasks[index].length) return
+        if (!this.getFlasks[index].length) return
         this.selectedIndex = index
         return
       }
@@ -205,8 +222,9 @@ export default {
     },
 
     pour (fromIndex, toIndex) {
-      const from = this.flasks[fromIndex]
-      const to = this.flasks[toIndex]
+      const flasks = this.getFlasks.map(flask => [...flask])
+      const from = flasks[fromIndex]
+      const to = flasks[toIndex]
 
       if (!from.length) return false
       if (to.length >= this.MAX_LAYERS) return false
@@ -231,7 +249,9 @@ export default {
         to.push(from.pop())
       }
 
-      if (this.checkWin()) {
+      this.setFlasks(flasks)
+
+      if (this.checkWin(flasks)) {
         this.isFinished = true
         this.stopTimer()
         this.addRecord()
@@ -241,8 +261,8 @@ export default {
       return true
     },
 
-    checkWin () {
-      return this.flasks.every(flask => {
+    checkWin (flasks) {
+      return flasks.every(flask => {
         if (!flask.length) return true
         if (flask.length !== this.MAX_LAYERS) return false
         return flask.every(color => color === flask[0])
@@ -306,7 +326,7 @@ export default {
     setBlockedFlask () {
       const available = []
 
-      this.flasks.forEach((flask, index) => {
+      this.getFlasks.forEach((flask, index) => {
         if (flask.length) {
           available.push(index)
         }
@@ -319,6 +339,49 @@ export default {
 
       const random = Math.floor(Math.random() * available.length)
       this.blockedFlaskIndex = available[random]
+    },
+
+    handleDragStart (index) {
+      this.setDragIndex(index)
+    },
+
+    handleDrop (index, place) {
+      if (this.getDragIndex === null) return
+
+      let targetIndex = index
+
+      if (place === 'right') {
+        targetIndex++
+      }
+
+      if (this.getDragIndex === targetIndex) {
+        this.setDragIndex(null)
+        return
+      }
+
+      if (this.getDragIndex + 1 === targetIndex) {
+        this.setDragIndex(null)
+        return
+      }
+
+      let blockedFlask = null
+
+      if (this.blockedFlaskIndex !== null) {
+        blockedFlask = this.getFlasks[this.blockedFlaskIndex]
+      }
+
+      this.moveFlask({
+        fromIndex: this.getDragIndex,
+        toIndex: targetIndex
+      })
+
+      this.selectedIndex = null
+
+      if (blockedFlask) {
+        this.blockedFlaskIndex = this.getFlasks.findIndex(flask => flask === blockedFlask)
+      }
+
+      this.setDragIndex(null)
     },
 
     openRecords () {
